@@ -7,44 +7,55 @@ import qs.modules.ii.bar as Bar
 
 Item {
     id: root
-    property bool borderless: Config.options.bar.borderless
-    implicitHeight: column.implicitHeight
+    implicitHeight: clockColumn.implicitHeight + 10
     implicitWidth: Appearance.sizes.verticalBarWidth
 
-    readonly property string dateTimeString: DateTime.time
-    readonly property bool hasAmPm: dateTimeString.toLowerCase().includes("am") || dateTimeString.toLowerCase().includes("pm")
-
-    Column {
-        id: column
-        anchors.centerIn: parent
-        spacing: root.hasAmPm ? 6 : 0
-
-        Column {
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: -4
-
-            Repeater {
-                model: root.dateTimeString.split(/[: ]/)
-                delegate: StyledText {
-                    required property string modelData
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    font.pixelSize: {
-                        if (modelData.match(/am|pm/i))
-                            return Appearance.font.pixelSize.smaller;
-                        else
-                            // Smaller "am"/"pm" text
-                            return Appearance.font.pixelSize.large;
-                    }
-                    color: Appearance.colors.colOnLayer1
-                    text: modelData.padStart(2, "0")
-                }
+    Connections {
+        target: LocalSend
+        onCurrentTransferChanged: {
+            if (LocalSend.currentTransfer) {
+                rootItem.toggleHighlight(true)
+            } else {
+                rootItem.toggleHighlight(false)
             }
         }
-        StyledText {
-            anchors.horizontalCenter: parent.horizontalCenter
-            font.pixelSize: Appearance.font.pixelSize.smallest
-            color: Appearance.colors.colOnLayer1
-            text: DateTime.shortDate
+        onDroppedFilesChanged: {
+            if (LocalSend.droppedFiles.length > 0) {
+                rootItem.toggleHighlight(true)
+            } else {
+                rootItem.toggleHighlight(false)
+            }
+        }
+    }
+
+    ColumnLayout {
+        id: clockColumn
+        anchors.centerIn: parent
+        spacing: 0
+
+        Repeater {
+            model: DateTime.time.split(/[: ]/)
+            delegate: StyledText {
+                required property string modelData
+                Layout.alignment: Qt.AlignHCenter
+                font.pixelSize: modelData.match(/am|pm/i) ? 
+                    Appearance.font.pixelSize.smaller // Smaller "am"/"pm" text
+                    : Appearance.font.pixelSize.large
+                color: dropArea.containsDrag ? Appearance.colors.colPrimary : rootItem.highlighted ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSurface
+                text: modelData.padStart(2, "0")
+            }
+        }
+    }
+
+    DropArea {
+        id: dropArea
+        anchors.fill: parent
+        keys: ["text/uri-list"]
+        onDropped: (drop) => {
+            if (!drop.hasUrls) return
+            for (let i = 0; i < drop.urls.length; i++)
+                LocalSend.addDroppedFile(drop.urls[i])
+            drop.accept(Qt.CopyAction)
         }
     }
 
@@ -54,6 +65,7 @@ Item {
         hoverEnabled: !Config.options.bar.tooltips.clickToShow
 
         Bar.ClockWidgetPopup {
+            compact: Config.options.bar.tooltips.compactPopups
             hoverTarget: mouseArea
         }
     }

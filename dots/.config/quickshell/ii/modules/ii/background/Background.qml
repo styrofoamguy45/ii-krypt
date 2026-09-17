@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import qs
 import qs.services
 import qs.modules.common
+import qs.modules.common.utils //FIXME. remove
 import qs.modules.common.widgets
 import qs.modules.common.widgets.widgetCanvas
 import qs.modules.common.functions as CF
@@ -17,11 +18,14 @@ import Quickshell.Hyprland
 import qs.modules.ii.background.widgets
 import qs.modules.ii.background.widgets.clock
 import qs.modules.ii.background.widgets.weather
+import qs.modules.ii.background.widgets.media
+import qs.modules.ii.background.widgets.todo
+import qs.modules.ii.background.widgets.calendar
 
 Variants {
     id: root
     model: Quickshell.screens
-
+    
     PanelWindow {
         id: bgRoot
 
@@ -34,11 +38,18 @@ Variants {
 
         // Workspaces
         property HyprlandMonitor monitor: Hyprland.monitorFor(modelData)
+
+        readonly property int activeWorkspaceId: monitor?.activeWorkspace?.id ?? -1
+
+        readonly property bool isCovered: {
+            if (activeWorkspaceId === -1 || !monitor) return false;
+            return HyprlandData.windowList.some(w => w.workspace?.id === activeWorkspaceId && w.monitor === monitor.id && !w.floating);
+        }
+
         property list<var> relevantWindows: HyprlandData.windowList.filter(win => win.monitor == monitor?.id && win.workspace.id >= 0).sort((a, b) => a.workspace.id - b.workspace.id)
         property int firstWorkspaceId: relevantWindows[0]?.workspace.id || 1
         property int lastWorkspaceId: relevantWindows[relevantWindows.length - 1]?.workspace.id || 10
-        property int workspaceChunkSize: Config?.options.bar.workspaces.shown ?? 10
-        property int totalWorkspaces: Math.ceil(lastWorkspaceId / workspaceChunkSize) * workspaceChunkSize
+
         // Wallpaper
         property bool wallpaperIsVideo: Config.options.background.wallpaperPath.endsWith(".mp4") || Config.options.background.wallpaperPath.endsWith(".webm") || Config.options.background.wallpaperPath.endsWith(".mkv") || Config.options.background.wallpaperPath.endsWith(".avi") || Config.options.background.wallpaperPath.endsWith(".mov")
         property string wallpaperPath: wallpaperIsVideo ? Config.options.background.thumbnailPath : Config.options.background.wallpaperPath
@@ -48,15 +59,14 @@ Variants {
             const sensitiveNetwork = (CF.StringUtils.stringListContainsSubstring(Network.networkName.toLowerCase(), Config.options.workSafety.triggerCondition.networkNameKeywords));
             return enabled && sensitiveWallpaper && sensitiveNetwork;
         }
-        readonly property real parallaxRation: Config.options.background.parallax.workspaceZoom
-        property real minSuitableScale: 1 // Some reasonable init, to be updated
-        property real effectiveWallpaperScale: minSuitableScale * parallaxRation
+        property real wallpaperToScreenRatio: Math.min(wallpaperWidth / screen.width, wallpaperHeight / screen.height)
+        property real preferredWallpaperScale: Config.options.background.parallax.workspaceZoom
+        property real effectiveWallpaperScale: 1 // Some reasonable init value, to be updated
         property int wallpaperWidth: modelData.width // Some reasonable init value, to be updated
         property int wallpaperHeight: modelData.height // Some reasonable init value, to be updated
-        property real scaledWallpaperWidth: wallpaperWidth * effectiveWallpaperScale
-        property real scaledWallpaperHeight: wallpaperHeight * effectiveWallpaperScale
-        property real parallaxTotalPixelsX: Math.max(0, scaledWallpaperWidth - screen.width)
-        property real parallaxTotalPixelsY: Math.max(0, scaledWallpaperHeight - screen.height)
+        property real movableXSpace: ((wallpaperWidth / wallpaperToScreenRatio * effectiveWallpaperScale) - screen.width) / 2
+        property real movableYSpace: ((wallpaperHeight / wallpaperToScreenRatio * effectiveWallpaperScale) - screen.height) / 2
+
         readonly property bool verticalParallax: (Config.options.background.parallax.autoVertical && wallpaperHeight > wallpaperWidth) || Config.options.background.parallax.vertical
         // Colors
         property bool shouldBlur: (GlobalStates.screenLocked && Config.options.lock.blur.enable)
@@ -71,10 +81,30 @@ Variants {
             animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)
         }
 
+        readonly property bool isScrollingLayout: Persistent.states.hyprland.layout === "scrolling"
+
+        property var zoomLevels: {  // has to be reverted compared to background
+            "in": { default: 1.04, zoomed: 1 },
+            "out": { default: 1, zoomed: 1.04 }
+        }
+
+        property real defaultRatio: zoomInStyle ? zoomLevels.in.default : zoomLevels.out.default
+        property real zoomedRatio: zoomInStyle ? zoomLevels.in.zoomed : zoomLevels.out.zoomed
+
+        readonly property bool zoomInStyle: Config.options.overview.scrollingStyle.zoomStyle === "in"
+        readonly property bool showOpeningAnimation: Config.options.overview.showOpeningAnimation
+
+        property bool overviewOpen: GlobalStates.overviewOpen
+
+        property real scaleAnimated: GlobalStates.overviewOpen && showOpeningAnimation ? zoomedRatio : defaultRatio
+        Behavior on scaleAnimated {
+            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+        }
+
         // Layer props
         screen: modelData
         exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: (GlobalStates.screenLocked && !scaleAnim.running) ? WlrLayer.Overlay : WlrLayer.Bottom
+        WlrLayershell.layer: (GlobalStates.screenLocked && !scaleAnim.running) ? WlrLayer.Top : WlrLayer.Bottom
         // WlrLayershell.layer: WlrLayer.Bottom
         WlrLayershell.namespace: "quickshell:background"
         anchors {
@@ -115,72 +145,190 @@ Variants {
                     bgRoot.wallpaperWidth = width;
                     bgRoot.wallpaperHeight = height;
 
-                    // Perfect image; scale = 1
-                    // Small picture; scale > 1; will zoom in the picture
-                    // Big picture; scale < 1; will zoom out the picture
-                    // Choose max number so every side will fit
-                    bgRoot.minSuitableScale = Math.max(screenWidth / width, screenHeight / height);
+                    if (width <= screenWidth || height <= screenHeight) {
+                        // Undersized/perfectly sized wallpapers
+                        bgRoot.effectiveWallpaperScale = Math.max(screenWidth / width, screenHeight / height);
+                    } else {
+                        // Oversized = can be zoomed for parallax, yay
+                        bgRoot.effectiveWallpaperScale = Math.min(bgRoot.preferredWallpaperScale, width / screenWidth, height / screenHeight);
+                    }
                 }
             }
         }
 
+        property bool mediaModeOpen: mediaModeLoader.active && MprisController.activePlayer
+        onMediaModeOpenChanged: {
+            if (!mediaModeOpen && Config.options.appearance.palette.type.startsWith("scheme")) {
+                Wallpapers.apply(Config.options.background.wallpaperPath)
+                LyricsService.shellColorChanged = false
+            }
+        }
+
+        property var _extensionBgWidgetEntries: []
+        property var _pendingWidgetSaves: ({})
+
+        Timer {
+            id: bgWidgetSaveTimer
+            interval: 300
+            repeat: false
+            onTriggered: {
+                for (let key in bgRoot._pendingWidgetSaves) {
+                    let p = bgRoot._pendingWidgetSaves[key]
+                    ExtensionManager.saveExtensionWidgetConfig(p.extId, p.wid, p.config)
+                }
+                bgRoot._pendingWidgetSaves = {}
+            }
+        }
+
+        function refreshExtensionBgWidgets() {
+            // Destroy all existing extension widget objects
+            for (let i = 0; i < _extensionBgWidgetEntries.length; i++) {
+                let entry = _extensionBgWidgetEntries[i]
+                if (entry) {
+                    if (entry.cfg) entry.cfg.destroy()
+                    if (entry.widget) entry.widget.destroy()
+                }
+            }
+            _extensionBgWidgetEntries = []
+
+            let list = ExtensionManager.getContributionPoint("backgroundWidgets")
+
+            for (let wi = 0; wi < list.length; wi++) {
+                let entry = list[wi]
+                let fullPath = entry.fullPath
+                let extId = entry.extensionId
+                let wid = entry.identifier
+                let x = entry.x
+                let y = entry.y
+                let strat = entry.placementStrategy || "free"
+
+                let comp = ExtensionManager.loadExtensionQmlComponent(fullPath)
+
+                let createWidget = (comp, entry, fullPath, extId, wid, x, y, strat) => {
+                    let savedWidgetConfig = ExtensionManager.getExtensionWidgetConfig(extId, wid)
+                    let savedX = savedWidgetConfig ? savedWidgetConfig.x : x
+                    let savedY = savedWidgetConfig ? savedWidgetConfig.y : y
+                    let qml = 'import QtQml; QtObject { property bool enable: true; property real x: ' + savedX + '; property real y: ' + savedY + '; property string placementStrategy: "' + strat + '" }'
+                    let cfg = Qt.createQmlObject(qml,bgRoot)
+
+                    let onPosChanged = () => {
+                        bgRoot._pendingWidgetSaves[extId + "/" + wid] = {
+                            extId: extId,
+                            wid: wid,
+                            config: { enable: cfg.enable, x: cfg.x, y: cfg.y }
+                        }
+                        bgWidgetSaveTimer.restart()
+                    }
+                    cfg.xChanged.connect(onPosChanged)
+                    cfg.yChanged.connect(onPosChanged)
+
+                    let widget = comp.createObject(widgetCanvas, {
+                        configEntry: cfg,
+                        screenWidth: bgRoot.screen.width,
+                        screenHeight: bgRoot.screen.height,
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale,
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale,
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
+                    })
+
+                    if (widget && extId) {
+                        if ("extensionId" in widget) {
+                            widget.extensionId = extId
+                        } else {
+                            Object.defineProperty(widget, "extensionId", {
+                                value: extId,
+                                writable: true,
+                                configurable: true,
+                                enumerable: true
+                            })
+                        }
+                        let entries = _extensionBgWidgetEntries.slice()
+                        entries.push({ widget: widget, cfg: cfg })
+                        _extensionBgWidgetEntries = entries
+                    }
+                }
+
+                if (comp.status === Component.Ready) {
+                    createWidget(comp, entry, fullPath, extId, wid, x, y, strat)
+                } else if (comp.status === Component.Error) {
+                    console.warn("Background: failed to load extension widget component for", extId, wid, ":", comp.errorString())
+                } else {
+                    comp.statusChanged.connect(() => {
+                        if (comp.status === Component.Ready) {
+                            createWidget(comp, entry, fullPath, extId, wid, x, y, strat)
+                        } else if (comp.status === Component.Error) {
+                            console.warn("Background: async component error for", extId, wid, ":", comp.errorString())
+                        }
+                    })
+                }
+            }
+
+        }
+
+        Component.onCompleted: {
+            refreshExtensionBgWidgets()
+            if (!mediaModeOpen && Config.options.appearance.palette.type.startsWith("scheme")) {
+                Wallpapers.apply(Config.options.background.wallpaperPath)
+            }
+        }
+
+        Connections {
+            target: ExtensionManager
+            function onRefreshExtensions() { refreshExtensionBgWidgets() }
+        }
+
         Item {
+            id: wallpaperItem
             anchors.fill: parent
+            clip: true
+            scale: showOpeningAnimation && overviewOpen && bgRoot.isScrollingLayout ? zoomedRatio : defaultRatio
+            opacity: mediaModeOpen ? 0 : 1
+            
+            Behavior on opacity {
+                NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
+            }
+
+            Behavior on scale {
+                animation: Appearance.animation.elementMoveEnter.numberAnimation.createObject(this)
+            }
 
             // Wallpaper
-            StyledImage {
+            TransitionImage {
                 id: wallpaper
-                visible: opacity > 0 && !blurLoader.active
-                opacity: (status === Image.Ready && !bgRoot.wallpaperIsVideo) ? 1 : 0
-                cache: false
-                smooth: false
-
-                property int workspaceIndex: (bgRoot.monitor.activeWorkspace?.id ?? 1) - 1
-                property real middleFraction: 0.5
-                property real fraction: {
-                    // 0 - start of the picture
-                    // 1 - end of the picture
-                    if (bgRoot.totalWorkspaces <= 1) {
-                        return middleFraction;
-                    }
-                    return Math.max(0, Math.min(1, workspaceIndex / (bgRoot.totalWorkspaces - 1)));
-                }
-
-                property real usedFractionX: {
-                    let usedFraction = middleFraction;
+                visible: !blurLoader.active
+                opacity: bgRoot.wallpaperIsVideo ? 0 : 1
+                // Range = groups that workspaces span on
+                property int chunkSize: Config?.options.bar.workspaces.shown ?? 10
+                property int lower: Math.floor(bgRoot.firstWorkspaceId / chunkSize) * chunkSize
+                property int upper: Math.ceil(bgRoot.lastWorkspaceId / chunkSize) * chunkSize
+                property int range: upper - lower
+                property real valueX: {
+                    let result = 0.5;
                     if (Config.options.background.parallax.enableWorkspace && !bgRoot.verticalParallax) {
-                        usedFraction = fraction;
+                        result = ((bgRoot.monitor.activeWorkspace?.id - lower) / range);
+
                     }
-                    if (Config.options.background.parallax.enableSidebar) {
-                        let sidebarFraction = bgRoot.parallaxRation / bgRoot.workspaceChunkSize / 2;
-                        usedFraction += (sidebarFraction * GlobalStates.sidebarRightOpen - sidebarFraction * GlobalStates.sidebarLeftOpen);
-                    }
-                    return Math.max(0, Math.min(1, usedFraction));
+                    return result;
                 }
-                property real usedFractionY: {
-                    let usedFraction = middleFraction;
+                property real sidebarOffsetX: {
+                    if (!Config.options.background.parallax.enableSidebar) return 0;
+                    return (0.15 * GlobalStates.effectiveRightOpen - 0.15 * GlobalStates.effectiveLeftOpen);
+
+                }
+                property real valueY: {
+                    let result = 0.5;
                     if (Config.options.background.parallax.enableWorkspace && bgRoot.verticalParallax) {
-                        usedFraction = fraction;
+                        result = ((bgRoot.monitor.activeWorkspace?.id - lower) / range);
                     }
-                    return Math.max(0, Math.min(1, usedFraction));
+                    return result;
                 }
+                property real effectiveValueX: Math.max(0, Math.min(1, valueX)) + sidebarOffsetX
+                property real effectiveValueY: Math.max(0, Math.min(1, valueY))
+                x: -(bgRoot.movableXSpace) - (effectiveValueX - 0.5) * 2 * bgRoot.movableXSpace
+                y: -(bgRoot.movableYSpace) - (effectiveValueY - 0.5) * 2 * bgRoot.movableYSpace
 
-                x: {
-                    if (bgRoot.screen.width > width) {
-                        // Center the picture
-                        return (bgRoot.screen.width - width) / 2;
-                    }
-                    return - bgRoot.parallaxTotalPixelsX * usedFractionX;
-                }
-                y: {
-                    if (bgRoot.screen.height > height) {
-                        // Center the picture
-                        return (bgRoot.screen.height - height) / 2;
-                    }
-                    return - bgRoot.parallaxTotalPixelsY * usedFractionY;
-                }
-
-                source: bgRoot.wallpaperSafetyTriggered ? "" : bgRoot.wallpaperPath
+                imageSource: bgRoot.wallpaperSafetyTriggered ? "" : bgRoot.wallpaperPath
+                animated: !bgRoot.wallpaperIsVideo
                 fillMode: Image.PreserveAspectCrop
                 Behavior on x {
                     NumberAnimation {
@@ -194,8 +342,20 @@ Variants {
                         easing.type: Easing.OutCubic
                     }
                 }
-                width: bgRoot.scaledWallpaperWidth
-                height: bgRoot.scaledWallpaperHeight
+                Behavior on width {
+                    NumberAnimation {
+                        duration: 800
+                        easing.type: Easing.OutCubic
+                    }
+                }
+                Behavior on height {
+                    NumberAnimation {
+                        duration: 800
+                        easing.type: Easing.OutCubic
+                    }
+                }
+                width: bgRoot.wallpaperWidth / bgRoot.wallpaperToScreenRatio * bgRoot.effectiveWallpaperScale
+                height: bgRoot.wallpaperHeight / bgRoot.wallpaperToScreenRatio * bgRoot.effectiveWallpaperScale
             }
 
             Loader {
@@ -226,19 +386,57 @@ Variants {
 
             WidgetCanvas {
                 id: widgetCanvas
-                width: parent.width
-                height: parent.height
-                readonly property real parallaxFactor: {
-                    var f = Config.options.background.parallax.widgetsFactor;
-                    return f / bgRoot.parallaxRation;
+                scale: 1 - (defaultRatio - 1)
+                Behavior on scale {
+                    animation: Appearance.animation.elementMove.numberAnimation.createObject(this)
                 }
-                readonly property real baseWallpaperOffsetX: (bgRoot.screen.width - wallpaper.width) / 2
-                readonly property real baseWallpaperOffsetY: (bgRoot.screen.height - wallpaper.height) / 2
-                readonly property real wallpaperTotalOffsetX: wallpaper.x - baseWallpaperOffsetX
-                readonly property real wallpaperTotalOffsetY: wallpaper.y - baseWallpaperOffsetY
-                readonly property bool locked: GlobalStates.screenLocked
-                x: wallpaperTotalOffsetX * parallaxFactor * !locked
-                y: wallpaperTotalOffsetY * parallaxFactor * !locked
+                anchors {
+                    left: wallpaper.left
+                    right: wallpaper.right
+                    top: wallpaper.top
+                    bottom: wallpaper.bottom
+                    horizontalCenter: undefined
+                    verticalCenter: undefined
+                    readonly property real parallaxFactor: Config.options.background.parallax.widgetsFactor
+                    leftMargin: {
+                        const xOnWallpaper = bgRoot.movableXSpace;
+                        const extraMove = (wallpaper.effectiveValueX * 2 * bgRoot.movableXSpace) * (parallaxFactor - 1);
+                        return xOnWallpaper - extraMove;
+                    }
+                    topMargin: {
+                        const yOnWallpaper = bgRoot.movableYSpace;
+                        const extraMove = (wallpaper.effectiveValueY * 2 * bgRoot.movableYSpace) * (parallaxFactor - 1);
+                        return yOnWallpaper - extraMove;
+                    }
+                    Behavior on leftMargin {
+                        animation: Appearance.animation.elementMove.numberAnimation.createObject(this)
+                    }
+                    Behavior on topMargin {
+                        animation: Appearance.animation.elementMove.numberAnimation.createObject(this)
+                    }
+                }
+                width: wallpaper.width
+                height: wallpaper.height
+                states: State {
+                    name: "centered"
+                    when: GlobalStates.screenLocked || bgRoot.wallpaperSafetyTriggered
+                    PropertyChanges {
+                        target: widgetCanvas
+                        width: parent.width
+                        height: parent.height
+                    }
+                    AnchorChanges {
+                        target: widgetCanvas
+                        anchors {
+                            left: undefined
+                            right: undefined
+                            top: undefined
+                            bottom: undefined
+                            horizontalCenter: parent.horizontalCenter
+                            verticalCenter: parent.verticalCenter
+                        }
+                    }
+                }
 
                 transitions: Transition {
                     PropertyAnimation {
@@ -259,9 +457,20 @@ Variants {
                     sourceComponent: WeatherWidget {
                         screenWidth: bgRoot.screen.width
                         screenHeight: bgRoot.screen.height
-                        scaledScreenWidth: bgRoot.screen.width
-                        scaledScreenHeight: bgRoot.screen.height
-                        wallpaperScale: 1
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
+                    }
+                }
+                
+                FadeLoader {
+                    shown: Config.options.background.widgets.calendar.enable
+                    sourceComponent: CalendarWidget {
+                        screenWidth: bgRoot.screen.width
+                        screenHeight: bgRoot.screen.height
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
                     }
                 }
 
@@ -270,12 +479,74 @@ Variants {
                     sourceComponent: ClockWidget {
                         screenWidth: bgRoot.screen.width
                         screenHeight: bgRoot.screen.height
-                        scaledScreenWidth: bgRoot.screen.width
-                        scaledScreenHeight: bgRoot.screen.height
-                        wallpaperScale: 1
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
                         wallpaperSafetyTriggered: bgRoot.wallpaperSafetyTriggered
+                        isCovered: bgRoot.isCovered
                     }
                 }
+                
+                FadeLoader {
+                    shown: Config.options.background.widgets.todo.enable
+                    sourceComponent: TodoWidget {
+                        screenWidth: bgRoot.screen.width
+                        screenHeight: bgRoot.screen.height
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
+                    }
+                }
+
+                Timer {
+                    id: mediaTimer
+                    interval: 200
+                    onTriggered: mediaLoader.enableLoading = true
+                }
+
+                FadeLoader {
+                    id: mediaLoader
+                    property bool enableLoading: true
+                    shown: Config.options.background.widgets.media.enable && enableLoading
+                    sourceComponent: MediaWidget {
+                        screenWidth: bgRoot.screen.width
+                        screenHeight: bgRoot.screen.height
+                        scaledScreenWidth: bgRoot.screen.width / bgRoot.effectiveWallpaperScale
+                        scaledScreenHeight: bgRoot.screen.height / bgRoot.effectiveWallpaperScale
+                        wallpaperScale: bgRoot.effectiveWallpaperScale
+                    }
+                    onLoaded: {
+                        if (item && item.requestReset) {
+                            item.requestReset.connect(() => { // hard reset
+                                mediaLoader.enableLoading = false
+                                mediaTimer.running = true
+                            })
+                        }
+                    }
+                }
+            }
+        }
+
+        GlobalShortcut {
+            name: "mediaModeToggle"
+            description: "Toggles media mode on press"
+
+            onPressed: {
+                if (!monitor.focused && Config.options.background.mediaMode.togglePerMonitor) return
+                mediaModeLoader.active = !mediaModeLoader.active
+                LyricsService.mediaModeOpenCount += mediaModeLoader.active ? 1 : -1
+            }
+        }
+        
+        Loader {
+            id: mediaModeLoader
+            anchors.fill: parent
+            active: false
+            asynchronous: true
+            sourceComponent: MediaMode {}
+            opacity: status === Loader.Ready ? 1 : 0
+            Behavior on opacity {
+                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
             }
         }
     }

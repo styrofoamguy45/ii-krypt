@@ -16,7 +16,6 @@ Item {
 
     StyledFlickable {
         id: flickable
-        clip: true
         anchors.fill: parent
         anchors.margins: Appearance.rounding.small
         contentHeight: height
@@ -34,11 +33,5 @@ Item {
                 }
             }
         }
-    }
-
-    ScrollEdgeFade {
-        target: flickable
-        vertical: false
-        color: Appearance.colors.colLayer0Base
     }
 }

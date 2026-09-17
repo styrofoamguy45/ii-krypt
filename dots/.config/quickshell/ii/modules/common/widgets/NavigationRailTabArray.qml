@@ -7,6 +7,9 @@ Item {
     id: root
     property int currentIndex: 0
     property bool expanded: false
+    property bool _isInitialized: false
+    Component.onCompleted: _isInitialized = true
+
     default property alias tabData: tabBarColumn.data  
     implicitHeight: tabBarColumn.implicitHeight
     implicitWidth: tabBarColumn.implicitWidth
@@ -23,9 +26,17 @@ Item {
         radius: Appearance.rounding.full
         color: Appearance.colors.colSecondaryContainer
         implicitHeight: root.expanded ? itemHeight : baseHighlightHeight
-        implicitWidth: tabBarColumn?.children[root.currentIndex]?.visualWidth ?? 100
+        implicitWidth: tabBarColumn?.children[root.currentIndex]?.visualWidth ?? 130
+
+        Behavior on implicitWidth {
+            enabled: root._isInitialized
+
+            animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
+        }
 
         Behavior on anchors.topMargin {
+            enabled: root._isInitialized
+
             NumberAnimation {
                 duration: Appearance.animationCurves.expressiveFastSpatialDuration
                 easing.type: Appearance.animation.elementMove.type

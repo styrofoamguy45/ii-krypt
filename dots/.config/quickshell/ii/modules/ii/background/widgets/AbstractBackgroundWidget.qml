@@ -9,15 +9,15 @@ import qs.modules.common.widgets.widgetCanvas
 AbstractWidget {
     id: root
 
-    required property string configEntryName
     required property int screenWidth
     required property int screenHeight
     required property int scaledScreenWidth
     required property int scaledScreenHeight
     required property real wallpaperScale
+    property string configEntryName: ""
     property bool visibleWhenLocked: false
-    property var configEntry: Config.options.background.widgets[configEntryName]
-    property string placementStrategy: configEntry.placementStrategy
+    property var configEntry: configEntryName ? Config.options.background.widgets[configEntryName] : null
+    property string placementStrategy: configEntry?.placementStrategy || "free"
     property real targetX: Math.max(0, Math.min(configEntry.x, scaledScreenWidth - width))
     property real targetY : Math.max(0, Math.min(configEntry.y, scaledScreenHeight - height))
     x: targetX
@@ -36,8 +36,10 @@ AbstractWidget {
     onReleased: {
         root.targetX = root.x;
         root.targetY = root.y;
-        configEntry.x = root.targetX;
-        configEntry.y = root.targetY;
+        if (configEntry) {
+            configEntry.x = root.targetX;
+            configEntry.y = root.targetY;
+        }
     }
 
     property bool needsColText: false
@@ -46,6 +48,16 @@ AbstractWidget {
     property color colText: {
         const onNormalBackground = (GlobalStates.screenLocked && Config.options.lock.blur.enable)
         const adaptiveColor = ColorUtils.colorWithLightness(Appearance.colors.colPrimary, (dominantColorIsDark ? 0.8 : 0.12))
+        return onNormalBackground ? Appearance.colors.colOnLayer0 : adaptiveColor;
+    }
+    property color colTextSecondary: {
+        const onNormalBackground = (GlobalStates.screenLocked && Config.options.lock.blur.enable)
+        const adaptiveColor = ColorUtils.colorWithLightness(Appearance.colors.colSecondary, (dominantColorIsDark ? 0.8 : 0.12))
+        return onNormalBackground ? Appearance.colors.colOnLayer0 : adaptiveColor;
+    }
+    property color colTextTertiary: {
+        const onNormalBackground = (GlobalStates.screenLocked && Config.options.lock.blur.enable)
+        const adaptiveColor = ColorUtils.colorWithLightness(Appearance.colors.colTertiary, (dominantColorIsDark ? 0.8 : 0.12))
         return onNormalBackground ? Appearance.colors.colOnLayer0 : adaptiveColor;
     }
 

@@ -14,10 +14,16 @@ GroupButton {
     verticalPadding: 8
     bounce: false
     property string buttonIcon
+    property string buttonShape
+    property string buttonSymbol
+    property string buttonColor
     property bool leftmost: false
     property bool rightmost: false
-    leftRadius: (toggled || leftmost) ? (height / 2) : Appearance.rounding.unsharpenmore
-    rightRadius: (toggled || rightmost) ? (height / 2) : Appearance.rounding.unsharpenmore
+    
+    readonly property bool sharpModeEnabled: Config.options.appearance.sharpMode
+    readonly property int fullRadius: sharpModeEnabled ? Appearance.rounding.full : height / 2
+    leftRadius: (toggled || leftmost) ? fullRadius : Appearance.rounding.unsharpenmore
+    rightRadius: (toggled || rightmost) ? fullRadius : Appearance.rounding.unsharpenmore
     colBackground: Appearance.colors.colSecondaryContainer
     colBackgroundHover: Appearance.colors.colSecondaryContainerHover
     colBackgroundActive: Appearance.colors.colSecondaryContainerActive
@@ -38,6 +44,33 @@ GroupButton {
                     iconSize: Appearance.font.pixelSize.larger
                     color: root.toggled ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondaryContainer
                 }
+            }
+        }
+
+        Loader {
+            Layout.alignment: Qt.AlignVCenter
+            active: root.buttonShape && root.buttonShape.length > 0
+            visible: active
+            sourceComponent: MaterialShape {
+                id: materialSymbol
+                implicitWidth: Appearance.font.pixelSize.larger
+                implicitHeight: Appearance.font.pixelSize.larger
+                shapeString: root.buttonShape
+                color: root.buttonColor !== "" ? root.buttonColor : root.toggled ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondaryContainer
+            }
+        }
+
+        Loader {
+            Layout.alignment: Qt.AlignVCenter
+            active: root.buttonSymbol && root.buttonSymbol.length > 0
+            visible: active
+            sourceComponent: CustomIcon {
+                id: materialSymbol
+                width: Appearance.font.pixelSize.larger
+                height: Appearance.font.pixelSize.larger
+                source: root.buttonSymbol
+                colorize: true
+                color: root.toggled ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondaryContainer
             }
         }
 

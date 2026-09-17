@@ -5,6 +5,9 @@ import qs.modules.common
 import qs.modules.common.widgets
 
 ContentPage {
+    id: page;
+    readonly property int index: 5
+    property bool register: parent.register ?? false
     forceWidth: true
 
     ContentSection {
@@ -22,6 +25,101 @@ ContentPage {
                 });
             }
         }
+    }
+
+    ContentSection {
+        icon: "bluetooth_searching"
+        title: Translation.tr("Fast pairing")
+
+        ConfigSwitch {
+            buttonIcon: "check"
+            text: Translation.tr("Offer nearby devices for pairing")
+            checked: Config.options.bluetooth.fastPair.enable
+            onCheckedChanged: {
+                Config.options.bluetooth.fastPair.enable = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("Shows an Android-style card when an unpaired device is nearby. Keeps Bluetooth discovering whenever nothing is connected, which costs radio time and battery.")
+            }
+        }
+
+        ConfigSwitch {
+            buttonIcon: "headphones"
+            text: Translation.tr("Audio devices only")
+            checked: Config.options.bluetooth.fastPair.audioOnly
+            onCheckedChanged: {
+                Config.options.bluetooth.fastPair.audioOnly = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("Ignore watches, phones and anything else that is not a headset or speaker")
+            }
+        }
+
+        ConfigSpinBox {
+            icon: "settings_input_antenna"
+            text: Translation.tr("Minimum signal strength (dBm)")
+            value: Config.options.bluetooth.fastPair.rssiThreshold
+            from: -95
+            to: -35
+            stepSize: 5
+            onValueChanged: {
+                Config.options.bluetooth.fastPair.rssiThreshold = value;
+            }
+        }
+
+        ConfigSpinBox {
+            icon: "timer"
+            text: Translation.tr("Popup timeout (s)")
+            value: Config.options.bluetooth.fastPair.popupTimeout
+            from: 0
+            to: 120
+            stepSize: 5
+            onValueChanged: {
+                Config.options.bluetooth.fastPair.popupTimeout = value;
+            }
+        }
+
+        RippleButtonWithIcon {
+            visible: Config.options.bluetooth.fastPair.ignoredDevices.length > 0
+            materialIcon: "playlist_remove"
+            mainText: Translation.tr("Clear %1 ignored device(s)").arg(Config.options.bluetooth.fastPair.ignoredDevices.length)
+            onClicked: {
+                Config.options.bluetooth.fastPair.ignoredDevices = [];
+            }
+        }
+    }
+
+    ContentSection {
+        icon: "album"
+        title: Translation.tr("Media")
+
+        ContentSubsection {
+            title: Translation.tr("Prioritized player")
+            tooltip: Translation.tr("Automatically sets the active player to a newly detected player if its identifier matches the value specified in the priority player property so you dont have to manually set the active player")
+
+            MaterialTextArea {
+                Layout.fillWidth: true
+                placeholderText: Translation.tr("Desktop entry name (e.g. spotify, google-chrome)")
+                text: Config.options.media.priorityPlayer
+                wrapMode: TextEdit.NoWrap
+                onTextChanged: {
+                    Config.options.media.priorityPlayer = text;
+                }
+            }
+        }
+
+        ConfigSwitch {
+            buttonIcon: "filter_list"
+            text: Translation.tr("Filter duplicate players")
+            checked: Config.options.media.filterDuplicatePlayers
+            onCheckedChanged: {
+                Config.options.media.filterDuplicatePlayers = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("Attempt to remove dupes (the aggregator playerctl one and browsers' native ones when there's plasma browser integration)")
+            }
+        }
+
     }
 
     ContentSection {
@@ -85,10 +183,52 @@ ContentPage {
         
     }
 
+
+    ContentSection {
+        icon: "lyrics"
+        title: Translation.tr("Lyrics")
+
+        ConfigSwitch {
+            buttonIcon: "check"
+            text: Translation.tr("Enable lyrics service")
+            checked: Config.options.lyricsService.enable
+            onCheckedChanged: {
+                Config.options.lyricsService.enable = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("Disabling this will prevent the API from being called, but already cached lyrics will still be available.")
+            }
+        }
+
+
+        ConfigRow {
+            uniform: true
+
+            ConfigSwitch {
+                enabled: Config.options.lyricsService.enable
+                buttonIcon: "mood"
+                text: Translation.tr("Enable genius lyrics service")
+                checked: Config.options.lyricsService.enableGenius
+                onCheckedChanged: {
+                    Config.options.lyricsService.enableGenius = checked;
+                }
+            }
+            ConfigSwitch {
+                enabled: Config.options.lyricsService.enable
+                buttonIcon: "library_books"
+                text: Translation.tr("Enable lrclib lyrics service")
+                checked: Config.options.lyricsService.enableLrclib
+                onCheckedChanged: {
+                    Config.options.lyricsService.enableLrclib = checked;
+                }
+            }
+        }
+    }
+
     ContentSection {
         icon: "file_open"
         title: Translation.tr("Save paths")
-
+        
         MaterialTextArea {
             Layout.fillWidth: true
             placeholderText: Translation.tr("Video Recording Path")
@@ -111,19 +251,51 @@ ContentPage {
     }
 
     ContentSection {
-        icon: "search"
-        title: Translation.tr("Search")
+        icon: "devices"
+        title: Translation.tr("LocalSend")
+        tooltip: Translation.tr("You must have the localsend-cli installed\nCheck repo wiki for more information")
 
         ConfigSwitch {
-            text: Translation.tr("Use Levenshtein distance-based algorithm instead of fuzzy")
-            checked: Config.options.search.sloppy
+            buttonIcon: "power_settings_new"
+            text: Translation.tr("Auto-start server")
+            checked: Config.options.localsend.autoStart
+            enabled: LocalSend.available
             onCheckedChanged: {
-                Config.options.search.sloppy = checked;
+                Config.options.localsend.autoStart = checked;
             }
             StyledToolTip {
-                text: Translation.tr("Could be better if you make a ton of typos,\nbut results can be weird and might not work with acronyms\n(e.g. \"GIMP\" might not give you the paint program)")
+                text: Translation.tr("Automatically start LocalSend server when shell starts")
             }
         }
+
+        ConfigSwitch {
+            buttonIcon: "notifications"
+            text: Translation.tr("Show notifications")
+            checked: Config.options.localsend.showNotifications
+            enabled: LocalSend.available
+            onCheckedChanged: {
+                Config.options.localsend.showNotifications = checked;
+            }
+            StyledToolTip {
+                text: Translation.tr("Show notifications for incoming transfers and completed downloads")
+            }
+        }
+
+        MaterialTextArea {
+            Layout.fillWidth: true
+            placeholderText: Translation.tr("Download path")
+            text: Config.options.localsend.downloadPath
+            wrapMode: TextEdit.Wrap
+            enabled: LocalSend.available
+            onTextChanged: {
+                Config.options.localsend.downloadPath = text;
+            }
+        }
+    }
+
+    ContentSection {
+        icon: "search"
+        title: Translation.tr("Search")
 
         ContentSubsection {
             title: Translation.tr("Prefixes")
@@ -187,6 +359,15 @@ ContentPage {
                         Config.options.search.prefix.webSearch = text;
                     }
                 }
+                MaterialTextArea {
+                    Layout.fillWidth: true
+                    placeholderText: Translation.tr("File search")
+                    text: Config.options.search.prefix.fileSearch
+                    wrapMode: TextEdit.Wrap
+                    onTextChanged: {
+                        Config.options.search.prefix.fileSearch = text;
+                    }
+                }
             }
         }
         ContentSubsection {
@@ -200,6 +381,29 @@ ContentPage {
                     Config.options.search.engineBaseUrl = text;
                 }
             }
+        }
+        ContentSubsection {
+            title: Translation.tr("File search")
+
+            MaterialTextArea {
+                Layout.fillWidth: true
+                placeholderText: Translation.tr("Search directory")
+                text: Config.options.search.fileSearchDirectory
+                wrapMode: TextEdit.Wrap
+                onTextChanged: {
+                    Config.options.search.fileSearchDirectory = text;
+                }
+            }
+
+            ConfigSwitch {
+                buttonIcon: "hide_image"
+                text: Translation.tr("Blur file search result previews")
+                checked: Config.options.search.blurFileSearchResultPreviews
+                onCheckedChanged: {
+                    Config.options.search.blurFileSearchResultPreviews = checked;
+                }
+            }
+
         }
     }
 

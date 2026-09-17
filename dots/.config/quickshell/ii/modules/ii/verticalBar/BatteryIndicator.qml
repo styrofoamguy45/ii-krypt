@@ -7,13 +7,13 @@ import qs.modules.ii.bar as Bar
 
 MouseArea {
     id: root
-    property bool borderless: Config.options.bar.borderless
     readonly property var chargeState: Battery.chargeState
     readonly property bool isCharging: Battery.isCharging
     readonly property bool isPluggedIn: Battery.isPluggedIn
     readonly property real percentage: Battery.percentage
     readonly property bool isLow: percentage <= Config.options.battery.low / 100
 
+    implicitWidth: batteryProgress.implicitWidth
     implicitHeight: batteryProgress.implicitHeight
     hoverEnabled: !Config.options.bar.tooltips.clickToShow
 
