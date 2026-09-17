@@ -14,6 +14,7 @@
 
 <details> 
   <summary>Notable features</summary>
+    
   - **Overview**: Shows open apps with live previews
   - **AI**: Gemini, Ollama, and more
   - **QoL**: screen translation, anti-flashbang, Google Lens
